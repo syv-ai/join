@@ -1,0 +1,39 @@
+{
+  "name": "@syv/join",
+  "version": "0.1.0",
+  "description": "A generic room relay: a host opens a room, phones join by code and answer what the host shows them.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/syv-ai/join.git"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./protocol": "./dist/protocol.js"
+  },
+  "bin": {
+    "join-server": "./dist/server.js"
+  },
+  "files": [
+    "dist",
+    "phone"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  }
+}
