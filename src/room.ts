@@ -42,6 +42,10 @@ export class Room {
     return previous ? { previous } : {}
   }
 
+  isHost(send: HostSend): boolean {
+    return this.host === send
+  }
+
   /** Detaches `send` if it is still the host; a host that was taken over detaches nothing. */
   detachHost(send: HostSend): void {
     if (this.host !== send) return
