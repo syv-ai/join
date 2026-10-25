@@ -80,7 +80,7 @@ test('a new phone is welcomed with the current screen and state', () => {
   room.setState('q1', { items: [] })
   const phone = inbox()
   const { pid, name } = room.addParticipant(undefined, undefined, phone.send)
-  assert.deepEqual(phone.of('welcome'), [{ type: 'welcome', pid, name, locale: 'en', screen: choice, state: { items: [] } }])
+  assert.deepEqual(phone.of('welcome'), [{ type: 'welcome', pid, name, locale: 'en', screen: choice, state: { items: [] }, now: 1_000 }])
 })
 
 test('state for an old screen is not shown to phones joining a new one', () => {

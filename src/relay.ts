@@ -120,10 +120,8 @@ export function createRelay(options: RelayOptions): Relay {
   function participant(ws: WebSocket, code: string) {
     const send = sender<RelayToParticipant>(ws)
     const room = rooms.get(code)
-    if (!room) {
-      send({ type: 'room-closed' })
-      return ws.close(CLOSE.unknownRoom, 'Unknown room')
-    }
+    // Unknown is not closed: after a relay restart a room is unknown until its host reclaims it.
+    if (!room) return ws.close(CLOSE.unknownRoom, 'Unknown room')
     let pid: string | null = null
     // A token bucket: bursts of a few taps are fine, a sustained flood is not.
     let tokensLeft = LIMITS.messagesPerSecond * 2, refilledAt = now()

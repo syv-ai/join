@@ -69,7 +69,7 @@ export class Room {
     participant.send = send
     this.participants.set(id, participant)
     send({
-      type: 'welcome', pid: id, name: participant.name, locale: this.locale, screen: this.screen,
+      type: 'welcome', pid: id, name: participant.name, locale: this.locale, screen: this.screen, now: this.now(),
       ...(this.state && this.state.screenId === this.screen?.id ? { state: this.state.state } : {}),
     })
     if (!known) this.host?.({ type: 'joined', pid: id, name: participant.name })
@@ -99,7 +99,7 @@ export class Room {
     const at = this.now()
     const deadline = screen.kind === 'quiz' && screen.seconds ? at + screen.seconds * 1000 : undefined
     this.screen = deadline === undefined ? screen : { ...screen, deadline }
-    this.broadcast({ type: 'screen', screen: this.screen })
+    this.broadcast({ type: 'screen', screen: this.screen, now: at })
     return deadline === undefined ? { at } : { at, deadline }
   }
 

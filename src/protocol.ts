@@ -76,8 +76,9 @@ export type ParticipantToRelay =
   | { type: 'rename'; name: string }
 
 export type RelayToParticipant =
-  | { type: 'welcome'; pid: string; name: string; locale: Locale; screen: Screen | null; state?: unknown }
-  | { type: 'screen'; screen: Screen }
+  // `now` is the relay's clock when sent, so a phone can count down to a quiz deadline whatever its own clock says.
+  | { type: 'welcome'; pid: string; name: string; locale: Locale; screen: Screen | null; state?: unknown; now: number }
+  | { type: 'screen'; screen: Screen; now: number }
   | { type: 'state'; screenId: string; state: unknown }
   | { type: 'to'; payload: unknown }
   | { type: 'renamed'; name: string }
