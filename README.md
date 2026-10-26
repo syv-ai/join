@@ -55,6 +55,17 @@ their own. A second host that resumes the same room takes it over; the first is 
 **Limits.** Phone messages up to 2 KB and about 10 per second; host screens up to 1.5 MB
 (question images travel inside them as data URLs); renames up to 40 characters.
 
+Per client address, set high enough for a whole venue behind one NAT: 1000 open connections,
+1200 new connections and 3000 HTTP requests a minute, 60 joins for unknown room codes a minute
+(room codes can't be guessed in bulk), and 10 wrong host tokens per 10 minutes before the
+address is shut out of `/host`. One host token holds at most 50 open rooms, and a room at most
+2000 phones. Over a limit, an upgrade or request gets HTTP 429 and an open socket closes with
+4429 (4413 for a full room). Limits are in [`src/limits.ts`](src/limits.ts).
+
+Behind a reverse proxy the relay reads the client address from the last `X-Forwarded-For`
+entry, but only when the connection comes from a loopback or private address (where a proxy
+on the same host or Docker network connects from), so a client can't claim another address.
+
 ## Using it from Node
 
 ```ts

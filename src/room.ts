@@ -136,6 +136,15 @@ export class Room {
     return this.host === null && this.now() - this.hostLeftAt > LIMITS.roomTtlMs
   }
 
+  /** Participants known to the room, connected or not. */
+  get size(): number {
+    return this.participants.size
+  }
+
+  has(pid: string | undefined): boolean {
+    return pid !== undefined && this.participants.has(pid)
+  }
+
   count(): number {
     let n = 0
     for (const participant of this.participants.values()) if (participant.send) n++

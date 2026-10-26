@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { clientAddress, IP_LIMITS, WindowCounter } from './limits.ts'
 import { createRelay, type Relay, type RelayOptions } from './relay.ts'
 
 // The phone page sits beside src/ and dist/ alike.
@@ -21,8 +22,15 @@ const SECURITY = {
 /** The relay plus the HTTP side: the phone page, `/<CODE>` links and a health check. */
 export function createJoinServer(options: RelayOptions): { server: Server; relay: Relay } {
   const relay = createRelay(options)
+  const requests = new WindowCounter(IP_LIMITS.requestsPerMinute, 60_000, options.now ?? Date.now)
+  const sweep = setInterval(() => requests.sweep(), 60_000)
+  sweep.unref()
   const server = createServer(async (req, res) => {
     const path = new URL(req.url ?? '/', 'http://join').pathname
+    if (path !== '/healthz' && !requests.hit(clientAddress(req, options.trustProxy))) {
+      res.writeHead(429, { 'content-type': 'text/plain', 'retry-after': '60' })
+      return res.end('Too many requests')
+    }
     try {
       if (path === '/healthz') {
         res.writeHead(200, { 'content-type': 'text/plain' })
