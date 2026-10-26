@@ -5,6 +5,7 @@ import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { clientAddress, IP_LIMITS, WindowCounter } from './limits.ts'
+import { quiet, shortIp, stdoutLog } from './log.ts'
 import { createRelay, type Relay, type RelayOptions } from './relay.ts'
 
 // The phone page sits beside src/ and dist/ alike.
@@ -22,12 +23,17 @@ const SECURITY = {
 /** The relay plus the HTTP side: the phone page, `/<CODE>` links and a health check. */
 export function createJoinServer(options: RelayOptions): { server: Server; relay: Relay } {
   const relay = createRelay(options)
+  const log = options.log ?? quiet
   const requests = new WindowCounter(IP_LIMITS.requestsPerMinute, 60_000, options.now ?? Date.now)
   const sweep = setInterval(() => requests.sweep(), 60_000)
   sweep.unref()
   const server = createServer(async (req, res) => {
     const path = new URL(req.url ?? '/', 'http://join').pathname
-    if (path !== '/healthz' && !requests.hit(clientAddress(req, options.trustProxy))) {
+    const ip = clientAddress(req, options.trustProxy)
+    const started = Date.now()
+    // Health checks every few seconds would drown the log; everything else is one line per request.
+    if (path !== '/healthz') res.on('finish', () => log('http', { method: req.method, path, status: res.statusCode, ms: Date.now() - started, ip: shortIp(ip) }))
+    if (path !== '/healthz' && !requests.hit(ip)) {
       res.writeHead(429, { 'content-type': 'text/plain', 'retry-after': '60' })
       return res.end('Too many requests')
     }
@@ -63,8 +69,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.a
   const hostTokens = (process.env.JOIN_HOST_TOKENS ?? '').split(',').map(t => t.trim()).filter(Boolean)
   const publicUrl = process.env.PUBLIC_URL ?? `http://localhost:${port}`
   if (!hostTokens.length) console.warn('JOIN_HOST_TOKENS is empty: no host can open a room.')
-  const { server, relay } = createJoinServer({ hostTokens, publicUrl })
-  server.listen(port, () => console.log(`join listening on :${port}, public URL ${publicUrl}`))
+  const { server, relay } = createJoinServer({ hostTokens, publicUrl, log: stdoutLog })
+  server.listen(port, () => stdoutLog('listening', { port, publicUrl, hostTokens: hostTokens.length }))
   // Sockets first: the HTTP server only finishes closing once they are gone.
   const stop = () => { relay.close(); server.close(() => process.exit(0)) }
   process.on('SIGTERM', stop)

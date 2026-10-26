@@ -6,6 +6,7 @@ import {
   CODE_ALPHABET, CODE_LENGTH, LIMITS, parseHostMessage, parseParticipantMessage,
   type RelayToHost, type RelayToParticipant,
 } from './protocol.ts'
+import { type Log, quiet, shortIp } from './log.ts'
 import { clientAddress, IP_LIMITS, PARTICIPANTS_PER_ROOM, ROOMS_PER_TOKEN, WindowCounter } from './limits.ts'
 import { Room, type Send } from './room.ts'
 
@@ -16,6 +17,8 @@ export interface RelayOptions {
   publicUrl: string
   /** Whose X-Forwarded-For to believe: by default, a peer on a private network (a reverse proxy). */
   trustProxy?: boolean | 'private'
+  /** Where connection and room events go; silent by default (the server logs to stdout). */
+  log?: Log
   now?: () => number
 }
 
@@ -45,6 +48,7 @@ function tokenMatches(token: string, tokens: string[]): boolean {
 
 export function createRelay(options: RelayOptions): Relay {
   const now = options.now ?? Date.now
+  const log = options.log ?? quiet
   const tokens = options.hostTokens.map(t => t.trim()).filter(Boolean)
   const publicUrl = options.publicUrl.replace(/\/+$/, '')
   const rooms = new Map<string, Room>()
@@ -74,7 +78,8 @@ export function createRelay(options: RelayOptions): Relay {
     let token = tokenMatches(bearer, tokens) ? bearer : ''
     let authorized = !!token
     const refuse = () => {
-      failedAuths.hit(ip)
+      const locked = !failedAuths.hit(ip)
+      log('auth-failed', { ip: shortIp(ip), locked })
       ws.close(CLOSE.unauthorized, 'Unauthorized')
     }
     if (bearer && !authorized) return refuse()
@@ -102,6 +107,7 @@ export function createRelay(options: RelayOptions): Relay {
             for (const owner of roomTokens.values()) if (owner === token) held++
             if (held >= ROOMS_PER_TOKEN) {
               room = null
+              log('refused', { reason: 'rooms-per-token', ip: shortIp(ip) })
               return send({ type: 'error', reason: 'Too many open rooms' })
             }
             room = resume && !existing && !tombstones.has(resume.code) && /^[A-Z0-9]+$/.test(resume.code)
@@ -109,9 +115,11 @@ export function createRelay(options: RelayOptions): Relay {
               : new Room(newCode(), randomBytes(24).toString('base64url'), message.locale, now)
             rooms.set(room.code, room)
             roomTokens.set(room.code, token)
+            log('room-opened', { room: room.code, resumed: room.code === resume?.code, locale: message.locale, ip: shortIp(ip) })
           }
           const { previous } = room.attachHost(send)
           if (previous) {
+            log('room-taken-over', { room: room.code, ip: shortIp(ip) })
             previous({ type: 'taken-over' })
             hostSockets.get(previous)?.close(CLOSE.takenOver, 'Taken over')
           }
@@ -125,6 +133,7 @@ export function createRelay(options: RelayOptions): Relay {
           room.close()
           rooms.delete(room.code)
           roomTokens.delete(room.code)
+          log('room-closed', { room: room.code, ip: shortIp(ip) })
           tombstones.set(room.code, now() + LIMITS.roomTtlMs)
           room = null
           return
@@ -147,7 +156,11 @@ export function createRelay(options: RelayOptions): Relay {
     const room = rooms.get(code)
     // Unknown is not closed: after a relay restart a room is unknown until its host reclaims it.
     // Many unknown codes from one address is someone guessing.
-    if (!room) return ws.close(unknownRooms.hit(ip) ? CLOSE.unknownRoom : CLOSE.tooFast, 'Unknown room')
+    if (!room) {
+      const guessing = !unknownRooms.hit(ip)
+      log(guessing ? 'refused' : 'unknown-room', { reason: guessing ? 'unknown-rooms' : undefined, room: code, ip: shortIp(ip) })
+      return ws.close(guessing ? CLOSE.tooFast : CLOSE.unknownRoom, 'Unknown room')
+    }
     let pid: string | null = null
     // A token bucket: bursts of a few taps are fine, a sustained flood is not.
     let tokensLeft = LIMITS.messagesPerSecond * 2, refilledAt = now()
@@ -161,7 +174,10 @@ export function createRelay(options: RelayOptions): Relay {
       if (rooms.get(code) !== room) return send({ type: 'room-closed' })
       if (message.type === 'hello') {
         if (pid) return
-        if (!room.has(message.pid) && room.size >= PARTICIPANTS_PER_ROOM) return ws.close(CLOSE.full, 'Room full')
+        if (!room.has(message.pid) && room.size >= PARTICIPANTS_PER_ROOM) {
+          log('refused', { reason: 'room-full', room: code, ip: shortIp(ip) })
+          return ws.close(CLOSE.full, 'Room full')
+        }
         pid = room.addParticipant(message.pid, message.name, send).pid
         return
       }
@@ -175,10 +191,16 @@ export function createRelay(options: RelayOptions): Relay {
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const ip = clientAddress(req, options.trustProxy)
     open.set(ip, (open.get(ip) ?? 0) + 1)
-    ws.on('close', () => {
+    const path0 = new URL(req.url ?? '/', 'http://relay').pathname
+    const role = path0 === '/host' ? 'host' : 'phone'
+    const room = /^\/p\/([A-Za-z0-9]+)$/.exec(path0)?.[1]?.toUpperCase()
+    const since = now()
+    log('connect', { role, room, ip: shortIp(ip) })
+    ws.on('close', (closeCode) => {
       const left = (open.get(ip) ?? 1) - 1
       if (left > 0) open.set(ip, left)
       else open.delete(ip)
+      log('disconnect', { role, room, closeCode, seconds: Math.round((now() - since) / 1000), ip: shortIp(ip) })
     })
     alive.set(ws, true)
     ws.on('pong', () => alive.set(ws, true))
@@ -203,7 +225,7 @@ export function createRelay(options: RelayOptions): Relay {
   }, HEARTBEAT_MS)
   const sweep = setInterval(() => {
     const t = now()
-    for (const [code, room] of rooms) if (room.expired()) { rooms.delete(code); roomTokens.delete(code) }
+    for (const [code, room] of rooms) if (room.expired()) { rooms.delete(code); roomTokens.delete(code); log('room-expired', { room: code }) }
     connects.sweep(); unknownRooms.sweep(); failedAuths.sweep()
     for (const [code, until] of tombstones) if (until < t) tombstones.delete(code)
   }, 60_000)
@@ -219,6 +241,7 @@ export function createRelay(options: RelayOptions): Relay {
       const limited = (open.get(ip) ?? 0) >= IP_LIMITS.connections || !connects.hit(ip)
         || (path === '/host' && failedAuths.over(ip))
       if (limited) {
+        log('refused', { reason: path === '/host' && failedAuths.over(ip) ? 'host-locked' : 'connections', path, ip: shortIp(ip) })
         socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
         return socket.destroy()
       }

@@ -1,12 +1,13 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import WebSocket from 'ws'
+import type { Log } from '../src/log.ts'
 import { createRelay, type Relay } from '../src/relay.ts'
 
 export const TOKEN = 'test-token'
 
-export async function startRelay(port = 0): Promise<{ relay: Relay; server: Server; url: string; port: number; stop(): Promise<void> }> {
-  const relay = createRelay({ hostTokens: [TOKEN], publicUrl: 'https://join.test' })
+export async function startRelay(port = 0, log?: Log): Promise<{ relay: Relay; server: Server; url: string; port: number; stop(): Promise<void> }> {
+  const relay = createRelay({ hostTokens: [TOKEN], publicUrl: 'https://join.test', log })
   const server = createServer((_, res) => res.end('ok'))
   server.on('upgrade', (req, socket, head) => relay.handleUpgrade(req, socket, head))
   await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve))

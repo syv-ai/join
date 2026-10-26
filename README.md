@@ -66,6 +66,20 @@ Behind a reverse proxy the relay reads the client address from the last `X-Forwa
 entry, but only when the connection comes from a loopback or private address (where a proxy
 on the same host or Docker network connects from), so a client can't claim another address.
 
+## Logs
+
+The server writes one JSON line per event to stdout, which a container host such as Coolify
+shows and keeps: `listening`, `http` (every request except `/healthz`, with status and time),
+`connect` and `disconnect` (host or phone, room code, close code, seconds connected),
+`room-opened`, `room-closed`, `room-taken-over`, `room-expired`, `unknown-room`, `auth-failed`
+and `refused` (which limit, see above). Addresses are shortened to their network
+(`203.0.113.0`, an IPv6 /48), so a flood from one place shows without pointing at a person.
+Answers, names, question text and tokens are never logged.
+
+```json
+{"time":"2026-10-26T09:56:54.342Z","event":"http","method":"GET","path":"/ABCDE","status":200,"ms":2,"ip":"203.0.113.0"}
+```
+
 ## Using it from Node
 
 ```ts
@@ -94,7 +108,7 @@ node test/manual-host.ts http://localhost:8080 dev   # step through every screen
 ## Privacy
 
 The relay keeps rooms, names and the current screen in memory while a room exists, and nothing
-on disk. It does not log answers. What a host does with the answers it receives is up to the
+on disk. Its logs hold events with shortened addresses, never answers or names (see Logs). What a host does with the answers it receives is up to the
 host.
 
 ## License
