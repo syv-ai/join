@@ -119,6 +119,24 @@ test('rename reaches the host and the phone', () => {
   assert.deepEqual(phone.of('renamed'), [{ type: 'renamed', name: 'Lone' }])
 })
 
+test('a phone names itself once; a later rename is refused and the phone told its name', () => {
+  const room = new Room('ABCDE', 's', 'da', clock().now), host = inbox(), phone = inbox()
+  room.attachHost(host.send)
+  const { pid } = room.addParticipant(undefined, undefined, phone.send)
+  room.rename(pid, 'Lone')
+  room.rename(pid, 'Anders')
+  assert.deepEqual(host.of('renamed').map(m => m.name), ['Lone'])
+  assert.deepEqual(phone.of('renamed').map(m => m.name), ['Lone', 'Lone'])
+})
+
+test('a phone back after a relay restart with its chosen name keeps it fixed', () => {
+  const room = new Room('ABCDE', 's', 'da', clock().now), host = inbox(), phone = inbox()
+  room.attachHost(host.send)
+  room.addParticipant('p-old', 'Lone', phone.send)
+  room.rename('p-old', 'Anders')
+  assert.equal(host.of('renamed').length, 0)
+})
+
 test('a room expires 12 h after its host leaves, never while a host is attached', () => {
   const c = clock(0), room = new Room('ABCDE', 's', 'da', c.now), host = inbox()
   room.attachHost(host.send)

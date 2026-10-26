@@ -13,6 +13,8 @@ const PHONE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'phone')
 const STATIC: Record<string, string> = {
   '/phone.js': 'text/javascript; charset=utf-8',
   '/phone.css': 'text/css; charset=utf-8',
+  '/logo-light.png': 'image/png',
+  '/logo-dark.png': 'image/png',
 }
 const SECURITY = {
   'content-security-policy': "default-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; frame-ancestors 'none'",

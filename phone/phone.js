@@ -10,7 +10,17 @@ const STRINGS = {
     entriesLeft: n => n === 1 ? 'Du kan sende 1 svar mere.' : `Du kan sende ${n} svar mere.`, noMore: 'Tak for dine svar.',
     yourWord: 'Dit svar', ask: 'Stil et spørgsmål', noQuestions: 'Ingen spørgsmål endnu.',
     locked: 'Svar låst', timeUp: 'Tiden er gået', right: points => `Rigtigt! +${points}`, wrong: 'Forkert',
-    rename: 'Dit navn', save: 'Gem', name: name => `${name} ✎`,
+    chooseName: 'Vælg dit navn', nameHint: 'Navnet ses af oplægsholderen og kan stå på quizzens topliste. Det kan ikke ændres bagefter.',
+    nameLabel: 'Dit navn', continue: 'Fortsæt',
+    notFound: 'Rummet findes ikke', notFoundHint: 'Det er måske lukket.',
+    dataTab: 'Din data', dataTitle: 'Sådan behandler vi dine data',
+    data: [
+      ['Du er anonym', 'Vi spørger ikke om navn, mail eller login. Det navn, du vælger, ses af oplægsholderen og kan stå på quizzens topliste. Skriv ikke personlige oplysninger i dine svar.'],
+      ['Det gemmes', 'Dine svar, dit navn og tidspunkterne gemmes hos oplægsholderen, så resultaterne kan bruges efter oplægget. Der gemmes ingen IP-adresse eller oplysninger om din telefon sammen med dem.'],
+      ['Undervejs', 'Svarene går gennem Syv.ai’s server join.syv.ai. Den holder dem kun i hukommelsen, mens rummet er åbent (højst 12 timer), og skriver dem aldrig til disk.'],
+      ['Driftslog', 'Serveren logger forbindelser med en forkortet netværksadresse (fx 203.0.113.0) for at kunne stoppe misbrug. Den logger aldrig svar eller navne.'],
+      ['På din telefon', 'Browseren husker et tilfældigt id, dit navn og dine svar i dette rum, så du kan komme tilbage efter et afbrud. Ryd browserens data for at slette dem.'],
+    ],
   },
   en: {
     enterCode: 'Enter the code on the screen', join: 'Join', unknownRoom: 'That room does not exist. Check the code.',
@@ -19,7 +29,17 @@ const STRINGS = {
     entriesLeft: n => n === 1 ? 'You can send 1 more answer.' : `You can send ${n} more answers.`, noMore: 'Thanks for your answers.',
     yourWord: 'Your answer', ask: 'Ask a question', noQuestions: 'No questions yet.',
     locked: 'Answer locked', timeUp: "Time's up", right: points => `Correct! +${points}`, wrong: 'Wrong',
-    rename: 'Your name', save: 'Save', name: name => `${name} ✎`,
+    chooseName: 'Choose your name', nameHint: 'The presenter sees it, and it can appear on the quiz leaderboard. It can’t be changed afterwards.',
+    nameLabel: 'Your name', continue: 'Continue',
+    notFound: 'This room does not exist', notFoundHint: 'It may have closed.',
+    dataTab: 'Your data', dataTitle: 'How we handle your data',
+    data: [
+      ['You are anonymous', 'We don’t ask for your name, email or a login. The name you choose is seen by the presenter and can appear on the quiz leaderboard. Don’t put personal details in your answers.'],
+      ['What is kept', 'Your answers, your name and the times are kept by the presenter, so the results can be used after the talk. No IP address or details about your phone are kept with them.'],
+      ['On the way', 'Answers pass through Syv.ai’s server join.syv.ai. It holds them in memory only while the room is open (at most 12 hours) and never writes them to disk.'],
+      ['Server log', 'The server logs connections with a shortened network address (such as 203.0.113.0) to stop abuse. It never logs answers or names.'],
+      ['On your phone', 'Your browser remembers a random id, your name and your answers in this room, so you can come back after a dropped connection. Clear the browser’s data to delete them.'],
+    ],
   },
 }
 
@@ -27,7 +47,9 @@ const CLOSE = { badMessage: 4400, unknownRoom: 4404, tooFast: 4429 }
 const $ = selector => document.querySelector(selector)
 const stage = $('[data-stage]')
 const banner = $('[data-banner]')
-const nameButton = $('[data-name]')
+const nameLabel = $('[data-name]')
+const dataTab = $('[data-data-tab]')
+const dataPanel = $('[data-data-panel]')
 
 let locale = (navigator.language || 'da').toLowerCase().startsWith('da') ? 'da' : 'en'
 let t = STRINGS[locale]
@@ -55,13 +77,32 @@ const show = (...nodes) => stage.replaceChildren(...nodes.filter(Boolean))
 
 // ---- joining ---------------------------------------------------------------
 
+function showNotFound() {
+  document.body.classList.add('is-landing')
+  $('[data-code]').textContent = ''
+  banner.hidden = true
+  show(el('div', { class: 'landing not-found' },
+    logo('logo-large'),
+    el('p', { class: 'not-found-code', text: '404' }),
+    el('h1', { class: 'landing-title', text: t.notFound }),
+    el('p', { class: 'note', text: t.notFoundHint })))
+}
+
+function logo(size) {
+  const picture = el('picture', { class: `logo ${size}` },
+    el('source', { srcset: '/logo-dark.png', media: '(prefers-color-scheme: light)' }))
+  picture.append(el('img', { src: '/logo-light.png', alt: 'Syv.ai' }))
+  return picture
+}
+
 function showJoinForm(message) {
+  document.body.classList.add('is-landing')
   const input = el('input', { inputmode: 'text', autocomplete: 'off', autocapitalize: 'characters', maxlength: '12', 'aria-label': t.enterCode, placeholder: 'ABCDE' })
   const form = el('form', { class: 'join', onsubmit: (event) => {
     event.preventDefault()
     const value = input.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
     if (value) location.href = `/${value}`
-  } }, el('p', { class: 'note', text: message || t.enterCode }), input, el('button', { class: 'primary', type: 'submit', text: t.join }))
+  } }, logo('logo-large'), el('p', { class: 'note', text: message || t.enterCode }), input, el('button', { class: 'primary', type: 'submit', text: t.join }))
   show(form)
   input.focus()
 }
@@ -78,6 +119,8 @@ let tick = null
 // After a relay restart, phones reconnect before the host has reclaimed the room. A phone that has
 // been in the room keeps trying instead of reporting it unknown.
 let welcomed = false
+/** The name step is showing: screens arrive but wait behind it. */
+let naming = false
 /** Welcomed on the current connection: only then may answers go out (hello comes first). */
 let inRoom = false
 
@@ -87,7 +130,8 @@ function connect() {
   if (!ws) show(el('p', { class: 'hint', text: t.connecting }))
   const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/p/${code}`)
   ws = socket
-  socket.onopen = () => socket.send(JSON.stringify({ type: 'hello', ...(me ? { pid: me.pid, name: me.name } : {}) }))
+  // The name goes along only once chosen: the relay treats a name in hello as the phone's fixed one.
+  socket.onopen = () => socket.send(JSON.stringify({ type: 'hello', ...(me ? { pid: me.pid, ...(store.get(key('named')) ? { name: me.name } : {}) } : {}) }))
   socket.onmessage = (event) => {
     let message
     try { message = JSON.parse(event.data) } catch { return }
@@ -95,7 +139,7 @@ function connect() {
   }
   socket.onclose = (event) => {
     inRoom = false
-    if (event.code === CLOSE.unknownRoom && !welcomed) return showJoinForm(t.unknownRoom)
+    if (event.code === CLOSE.unknownRoom && !welcomed) return showNotFound()
     if (screen?.kind === 'thanks') return
     banner.hidden = false
     banner.textContent = t.reconnecting
@@ -122,12 +166,16 @@ function receive(message) {
       locale = message.locale === 'en' ? 'en' : 'da'
       t = STRINGS[locale]
       document.documentElement.lang = locale
+      dataTab.textContent = t.dataTab
       me = { pid: message.pid, name: message.name }
       store.set(key('me'), me)
       showName()
       for (const queued of outbox.splice(0)) ws.send(JSON.stringify(queued))
       clockOffset = message.now - Date.now()
       listState = message.state ?? null
+      screen = message.screen
+      // A phone new to this room names itself first; the name is then fixed for the session.
+      if (!store.get(key('named'))) return showNameStep()
       render(message.screen)
       return
     case 'screen':
@@ -139,6 +187,7 @@ function receive(message) {
       if (!screen || message.screenId !== screen.id) return
       listState = message.state
       // A list redraws only its items: someone may be typing a question.
+      if (naming) return
       if (screen.kind === 'list' && stage.querySelector('[data-items]')) renderItems(screen)
       else render(screen)
       return
@@ -162,19 +211,30 @@ function receive(message) {
 // ---- name ------------------------------------------------------------------
 
 function showName() {
-  nameButton.hidden = false
-  nameButton.textContent = t.name(me.name)
-  nameButton.onclick = () => {
-    const input = el('input', { value: me.name, maxlength: '40', 'aria-label': t.rename })
-    const form = el('form', { class: 'field', onsubmit: (event) => {
-      event.preventDefault()
-      const name = input.value.trim()
-      if (name && name !== me.name) send({ type: 'rename', name })
-      render(screen)
-    } }, input, el('button', { class: 'primary', type: 'submit', text: t.save }))
-    show(el('p', { class: 'note', text: t.rename }), form)
-    input.select()
-  }
+  nameLabel.hidden = false
+  nameLabel.textContent = me.name
+}
+
+function showNameStep() {
+  naming = true
+  document.body.classList.add('is-landing')
+  const input = el('input', { value: me.name, maxlength: '40', 'aria-label': t.nameLabel, autocomplete: 'off', autocapitalize: 'words', enterkeyhint: 'go' })
+  const form = el('form', { class: 'landing name-step', onsubmit: (event) => {
+    event.preventDefault()
+    const name = input.value.trim().replace(/\s+/g, ' ') || me.name
+    // Always sent, even unchanged: the relay takes one name per phone, so this fixes it.
+    send({ type: 'rename', name })
+    me = { ...me, name }
+    store.set(key('me'), me)
+    store.set(key('named'), true)
+    naming = false
+    document.body.classList.remove('is-landing')
+    showName()
+    render(screen)
+  } }, logo('logo-large'), el('h1', { class: 'landing-title', text: t.chooseName }), el('p', { class: 'note', text: t.nameHint }),
+    input, el('button', { class: 'primary', type: 'submit', text: t.continue }))
+  show(form)
+  input.select()
 }
 
 // ---- screens ---------------------------------------------------------------
@@ -189,6 +249,7 @@ function question(content) {
 
 function render(next) {
   screen = next
+  if (naming) return
   clearInterval(tick)
   if (!screen || screen.kind === 'wait') return show(el('p', { class: 'big', text: t.look }))
   if (screen.kind === 'thanks') {
@@ -309,7 +370,25 @@ function renderQuiz(s) {
   }
 }
 
+// ---- your data ---------------------------------------------------------------
+
+function setupDataPanel() {
+  dataTab.textContent = t.dataTab
+  const render = () => dataPanel.replaceChildren(
+    el('h2', { text: t.dataTitle }),
+    ...t.data.map(([title, text]) => el('section', {}, el('h3', { text: title }), el('p', { text }))))
+  dataTab.onclick = () => {
+    const open = dataTab.getAttribute('aria-expanded') !== 'true'
+    if (open) render()
+    dataTab.setAttribute('aria-expanded', String(open))
+    dataPanel.hidden = !open
+    document.body.classList.toggle('data-open', open)
+  }
+}
+
 // ---- start -----------------------------------------------------------------
+
+setupDataPanel()
 
 if (!code) {
   showJoinForm()

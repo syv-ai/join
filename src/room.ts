@@ -6,7 +6,8 @@ export type Send<T> = (message: T) => void
 type HostSend = Send<RelayToHost>
 type PhoneSend = Send<RelayToParticipant>
 
-interface Participant { name: string; send: PhoneSend | null }
+/** `named`: the phone has chosen its name; it is fixed from then on (no renaming mid-quiz). */
+interface Participant { name: string; send: PhoneSend | null; named: boolean }
 
 /**
  * One room: its host, its participants and the screen they see. The relay owns
@@ -65,7 +66,7 @@ export class Room {
   addParticipant(pid: string | undefined, name: string | undefined, send: PhoneSend): { pid: string; name: string } {
     const known = pid === undefined ? undefined : this.participants.get(pid)
     const id = pid ?? randomUUID()
-    const participant = known ?? { name: name ?? randomName(this.locale), send: null }
+    const participant = known ?? { name: name ?? randomName(this.locale), send: null, named: name !== undefined }
     participant.send = send
     this.participants.set(id, participant)
     send({
@@ -86,9 +87,12 @@ export class Room {
     this.host?.({ type: 'count', n: this.count() })
   }
 
+  /** Sets a phone's chosen name, once. A later rename is answered with the name it already has. */
   rename(pid: string, name: string): void {
     const participant = this.participants.get(pid)
     if (!participant) return
+    if (participant.named) return participant.send?.({ type: 'renamed', name: participant.name })
+    participant.named = true
     participant.name = name
     participant.send?.({ type: 'renamed', name })
     this.host?.({ type: 'renamed', pid, name })

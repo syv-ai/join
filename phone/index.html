@@ -12,13 +12,18 @@
 </head>
 <body>
   <header class="bar">
-    <span class="bar-code" data-code></span>
-    <button class="bar-name" type="button" data-name hidden></button>
+    <span class="bar-brand">
+      <picture class="logo logo-small"><source srcset="/logo-dark.png" media="(prefers-color-scheme: light)"><img src="/logo-light.png" alt="Syv.ai"></picture>
+      <span class="bar-code" data-code></span>
+    </span>
+    <span class="bar-name" data-name hidden></span>
   </header>
   <div class="banner" data-banner hidden></div>
   <main class="stage" data-stage>
     <p class="hint">…</p>
   </main>
+  <button class="data-tab" type="button" data-data-tab aria-expanded="false" aria-controls="data-panel">Din data</button>
+  <div class="data-panel" id="data-panel" data-data-panel hidden></div>
   <noscript><p class="hint">Denne side kræver JavaScript. · This page needs JavaScript.</p></noscript>
 </body>
 </html>
