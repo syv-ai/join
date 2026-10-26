@@ -6,14 +6,18 @@ export type Send<T> = (message: T) => void
 type HostSend = Send<RelayToHost>
 type PhoneSend = Send<RelayToParticipant>
 
-/** `named`: the phone has chosen its name; it is fixed from then on (no renaming mid-quiz). */
-interface Participant { name: string; send: PhoneSend | null; named: boolean }
+/**
+ * `named`: the phone has chosen its name; it is fixed from then on (no renaming mid-quiz).
+ * `last`: the last `to` for it and the screen it was sent on, replayed when the phone comes back.
+ */
+interface Participant { name: string; send: PhoneSend | null; named: boolean; last?: { screenId: string; payload: unknown } }
 
 /**
  * One room: its host, its participants and the screen they see. The relay owns
  * sockets; a room only sees `send` callbacks, so its rules are tested without a
  * network. Participants are kept after they disconnect, so a phone that comes
- * back keeps its name.
+ * back keeps its name, and is welcomed with what it missed: the current screen,
+ * its state, and the last `to` sent to it while that screen is up.
  */
 export class Room {
   private host: HostSend | null = null
@@ -72,6 +76,7 @@ export class Room {
     send({
       type: 'welcome', pid: id, name: participant.name, locale: this.locale, screen: this.screen, now: this.now(),
       ...(this.state && this.state.screenId === this.screen?.id ? { state: this.state.state } : {}),
+      ...(participant.last && participant.last.screenId === this.screen?.id ? { to: participant.last.payload } : {}),
     })
     if (!known) this.host?.({ type: 'joined', pid: id, name: participant.name })
     this.host?.({ type: 'count', n: this.count() })
@@ -117,8 +122,12 @@ export class Room {
     this.broadcast({ type: 'state', screenId, state })
   }
 
+  /** Sends to one phone, and keeps it for the phone's next welcome in case it is away. */
   sendTo(pid: string, payload: unknown): void {
-    this.participants.get(pid)?.send?.({ type: 'to', payload })
+    const participant = this.participants.get(pid)
+    if (!participant) return
+    if (this.screen) participant.last = { screenId: this.screen.id, payload }
+    participant.send?.({ type: 'to', payload })
   }
 
   /** Stamps an answer with the relay's clock and passes it to the host, or holds it until one attaches. */

@@ -6,10 +6,10 @@ const STRINGS = {
   da: {
     enterCode: 'Indtast koden fra skærmen', join: 'Deltag', unknownRoom: 'Rummet findes ikke. Tjek koden.',
     connecting: 'Forbinder…', reconnecting: 'Forbinder igen…', look: 'Kig på skærmen', thanks: 'Tak for i dag',
-    closed: 'Sessionen er slut. Tak fordi du var med.', send: 'Send', sent: 'Svar sendt', change: 'Du kan ændre dit svar.',
+    closed: 'Sessionen er slut. Tak fordi du var med.', send: 'Send', sent: 'Svar sendt',
     entriesLeft: n => n === 1 ? 'Du kan sende 1 svar mere.' : `Du kan sende ${n} svar mere.`, noMore: 'Tak for dine svar.',
     yourWord: 'Dit svar', ask: 'Stil et spørgsmål', noQuestions: 'Ingen spørgsmål endnu.',
-    locked: 'Svar låst', timeUp: 'Tiden er gået', right: points => `Rigtigt! +${points}`, wrong: 'Forkert',
+    locked: 'Svar låst', timeUp: 'Tiden er gået', right: points => `Rigtigt! +${points}`,
     close: 'Luk',
     chooseName: 'Vælg dit navn', nameHint: 'Navnet ses af oplægsholderen og kan stå på quizzens topliste. Det kan ikke ændres bagefter.',
     nameLabel: 'Dit navn', continue: 'Fortsæt',
@@ -26,10 +26,10 @@ const STRINGS = {
   en: {
     enterCode: 'Enter the code on the screen', join: 'Join', unknownRoom: 'That room does not exist. Check the code.',
     connecting: 'Connecting…', reconnecting: 'Reconnecting…', look: 'Look at the screen', thanks: 'Thank you',
-    closed: 'The session has ended. Thanks for joining.', send: 'Send', sent: 'Answer sent', change: 'You can change your answer.',
+    closed: 'The session has ended. Thanks for joining.', send: 'Send', sent: 'Answer sent',
     entriesLeft: n => n === 1 ? 'You can send 1 more answer.' : `You can send ${n} more answers.`, noMore: 'Thanks for your answers.',
     yourWord: 'Your answer', ask: 'Ask a question', noQuestions: 'No questions yet.',
-    locked: 'Answer locked', timeUp: "Time's up", right: points => `Correct! +${points}`, wrong: 'Wrong',
+    locked: 'Answer locked', timeUp: "Time's up", right: points => `Correct! +${points}`,
     close: 'Close',
     chooseName: 'Choose your name', nameHint: 'The presenter sees it, and it can appear on the quiz leaderboard. It can’t be changed afterwards.',
     nameLabel: 'Your name', continue: 'Continue',
@@ -152,10 +152,14 @@ function showJoinForm() {
 let ws = null
 let me = store.get(key('me')) // { pid, name }
 let screen = null
-let listState = null
+/** The host's live data for the current screen: a Q&A list, or a quiz's reveal. */
+let screenState = null
 let clockOffset = 0 // relay time minus our time
 let delay = 500
+let retry = null
 let tick = null
+/** The room has closed or doesn't exist: nothing to reconnect to. */
+let finished = false
 // After a relay restart, phones reconnect before the host has reclaimed the room. A phone that has
 // been in the room keeps trying instead of reporting it unknown.
 let welcomed = false
@@ -177,14 +181,45 @@ function connect() {
     receive(message)
   }
   socket.onclose = (event) => {
+    if (socket !== ws) return
     inRoom = false
-    if (event.code === CLOSE.unknownRoom && !welcomed) return showNotFound()
-    if (screen?.kind === 'thanks') return
+    if (event.code === CLOSE.unknownRoom && !welcomed) { finished = true; return showNotFound() }
+    if (finished) return
     setBanner(t.reconnecting)
-    setTimeout(connect, event.code === CLOSE.tooFast ? 5000 : delay)
+    clearTimeout(retry)
+    retry = setTimeout(connect, event.code === CLOSE.tooFast ? 5000 : delay)
     delay = Math.min(delay * 2, 10_000)
   }
 }
+
+// Phones are not kept open: people switch app or lock the screen, and the OS suspends the page,
+// drops its socket and holds back its timers. So the page reconnects the moment it is looked at
+// again, instead of when a backoff timer gets round to it. A socket that was away longer than the
+// relay's heartbeat may look open but be dead, so it is replaced.
+let hiddenAt = 0
+function wake() {
+  if (!code || !ws || finished) return
+  const away = hiddenAt ? Date.now() - hiddenAt : 0
+  hiddenAt = 0
+  const live = ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING
+  if (live && away < 20_000) return
+  clearTimeout(retry)
+  delay = 500
+  if (live) {
+    const old = ws
+    old.onclose = old.onmessage = null
+    inRoom = false
+    old.close()
+  }
+  connect()
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) hiddenAt = Date.now()
+  else wake()
+})
+window.addEventListener('pageshow', wake)
+window.addEventListener('online', wake)
+window.addEventListener('focus', wake)
 
 // Answers tapped while the connection is down wait here and go out once the room has us back,
 // so a phone never shows an answer as sent that the host never got.
@@ -193,6 +228,21 @@ function send(message) {
   if (ws && ws.readyState === WebSocket.OPEN && inRoom) ws.send(JSON.stringify(message))
   else outbox.push(message)
 }
+
+/**
+ * Sends what is waiting once the room has this phone back: the outbox, then this phone's stored
+ * answers to the current screen. The outbox lives in memory and is gone if the OS discarded the
+ * page; the stored answers are not, and the host ignores the ones it already has.
+ */
+function resend(current) {
+  const queued = outbox.splice(0).map(message => JSON.stringify(message))
+  const stored = current && ['choice', 'quiz', 'text'].includes(current.kind) ? store.get(key(`answer:${current.id}`)) : null
+  const values = stored == null ? [] : current.kind === 'text' ? stored : [stored]
+  const answers = values.map(value => JSON.stringify({ type: 'answer', screenId: current.id, value }))
+  for (const message of [...queued, ...answers.filter(answer => !queued.includes(answer))]) ws.send(message)
+}
+
+const isFeedback = value => !!value && typeof value === 'object' && typeof value.correct === 'boolean' && Number.isFinite(value.points)
 
 function receive(message) {
   switch (message.type) {
@@ -208,33 +258,41 @@ function receive(message) {
       me = { pid: message.pid, name: message.name }
       store.set(key('me'), me)
       showName()
-      for (const queued of outbox.splice(0)) ws.send(JSON.stringify(queued))
       clockOffset = message.now - Date.now()
-      listState = message.state ?? null
+      screenState = message.state ?? null
       screen = message.screen
+      resend(message.screen)
+      // The quiz result sent while this phone was away: news gets its pop once the quiz shows.
+      const missed = message.screen?.kind === 'quiz' && isFeedback(message.to)
+        && JSON.stringify(store.get(key(`feedback:${message.screen.id}`))) !== JSON.stringify(message.to)
+      if (missed) store.set(key(`feedback:${message.screen.id}`), message.to)
       // A phone new to this room names itself first; the name is then fixed for the session.
       if (!store.get(key('named'))) return showNameStep()
       render(message.screen)
+      if (missed) quiz?.feedback()
       return
     case 'screen':
       clockOffset = message.now - Date.now()
-      listState = null
+      screenState = null
       render(message.screen)
       return
     case 'state':
       if (!screen || message.screenId !== screen.id) return
-      listState = message.state
+      screenState = message.state
       if (naming) return
-      // A list redraws only its items: someone may be typing a question.
+      // A list redraws only its items: someone may be typing a question. A quiz reveals in place.
       if (screen.kind === 'list' && currentView()?.querySelector('[data-items]')) renderItems(screen)
+      else if (screen.kind === 'quiz' && quiz?.id === screen.id) quiz.reveal()
       else render(screen)
       return
-    case 'to':
-      if (screen?.kind === 'quiz' && message.payload && typeof message.payload.correct === 'boolean') {
-        store.set(key(`feedback:${screen.id}`), message.payload)
-        if (!naming) revealQuiz(message.payload)
-      }
+    case 'to': {
+      if (screen?.kind !== 'quiz' || !isFeedback(message.payload)) return
+      const before = store.get(key(`feedback:${screen.id}`))
+      store.set(key(`feedback:${screen.id}`), message.payload)
+      // The host may send it again (a slide shown again); only news gets the pop.
+      if (!naming && JSON.stringify(before) !== JSON.stringify(message.payload)) quiz?.id === screen.id ? quiz.feedback() : render(screen)
       return
+    }
     case 'renamed':
       me = { ...me, name: message.name }
       store.set(key('me'), me)
@@ -291,9 +349,11 @@ function render(next) {
   screen = next
   if (naming) return
   clearInterval(tick)
+  quiz = null
   if (!screen || screen.kind === 'wait')
     return show('wait', el('div', { class: 'waiting' }, el('span', { class: 'pulse', 'aria-hidden': 'true' }), el('p', { class: 'big', text: t.look })))
   if (screen.kind === 'thanks') {
+    finished = true
     setBanner(null)
     return show('thanks', el('p', { class: 'big', text: t.thanks }), el('p', { class: 'note note-shown', text: t.closed }))
   }
@@ -302,16 +362,24 @@ function render(next) {
   else show('wait', el('p', { class: 'big', text: t.look }))
 }
 
+/** A poll answer is final once sent: one tap for a single choice, Send for several. */
 function renderChoice(s) {
   const picked = store.get(key(`answer:${s.id}`)) // number | number[]
   const selected = new Set(Array.isArray(picked) ? picked : picked == null ? [] : [picked])
   const note = el('p', { class: 'note' })
   const paint = () => buttons.forEach((b, i) => b.setAttribute('aria-pressed', String(selected.has(i))))
+  const lock = () => {
+    options.classList.add('options-locked')
+    buttons.forEach(b => { b.disabled = true })
+    submit.disabled = true
+    setNote(note, `${t.sent} ✓`)
+  }
   const confirm = (value) => {
+    if (store.get(key(`answer:${s.id}`)) != null) return
     store.set(key(`answer:${s.id}`), value)
     send({ type: 'answer', screenId: s.id, value })
     haptic()
-    setNote(note, `${t.sent} ✓ ${t.change}`)
+    lock()
   }
   const buttons = (s.options ?? []).map((label, index) => el('button', {
     class: 'option', type: 'button', text: label,
@@ -328,11 +396,12 @@ function renderChoice(s) {
       confirm(index)
     },
   }))
+  const options = el('div', { class: 'options' }, ...buttons)
   const submit = el('button', { class: 'primary', type: 'button', text: t.send, onclick: () => confirm([...selected].sort((a, b) => a - b)) })
   submit.disabled = !selected.size
   paint()
-  if (picked != null) setNote(note, `${t.sent} ✓ ${t.change}`)
-  show(`choice:${s.id}`, ...question(s.content), el('div', { class: 'options' }, ...buttons), s.multi ? submit : null, note)
+  if (picked != null) lock()
+  show(`choice:${s.id}`, ...question(s.content), options, s.multi ? submit : null, note)
 }
 
 function renderText(s) {
@@ -385,7 +454,7 @@ function renderItems(s) {
   const holder = currentView()?.querySelector('[data-items]')
   if (!holder) return
   const votes = new Set(store.get(key(`votes:${s.id}`)) ?? [])
-  const items = Array.isArray(listState?.items) ? listState.items : []
+  const items = Array.isArray(screenState?.items) ? screenState.items : []
   if (!items.length) return holder.replaceChildren(el('p', { class: 'note note-shown', text: t.noQuestions }))
   let list = holder.querySelector('.items')
   if (!list) holder.replaceChildren(list = el('div', { class: 'items' }))
@@ -422,39 +491,81 @@ function renderItems(s) {
   }
 }
 
+/** The quiz on screen, so a reveal or a result arriving later can update it in place. */
+let quiz = null
+
+/**
+ * A quiz: tap once to lock an answer while the clock runs. At the reveal the right option stands
+ * out and the rest fade; a wrong pick of this phone's is struck through in red. No words for
+ * wrong: the picture says it. A right pick then gets its points.
+ */
 function renderQuiz(s) {
   clearInterval(tick)
-  const picked = store.get(key(`answer:${s.id}`))
-  const feedback = store.get(key(`feedback:${s.id}`))
+  const picked = () => store.get(key(`answer:${s.id}`))
+  const feedback = () => store.get(key(`feedback:${s.id}`))
+  const revealed = () => screen?.id === s.id && screenState?.revealed === true && Array.isArray(screenState.correct)
   const totalMs = (s.seconds ?? 20) * 1000
   const leftMs = () => Math.max(0, (s.deadline ?? 0) - (Date.now() + clockOffset))
   const status = el('p', { class: 'note' })
   const buttons = (s.options ?? []).map((label, index) => el('button', {
     class: 'option', type: 'button', text: label,
     onclick: () => {
-      if (store.get(key(`answer:${s.id}`)) != null || leftMs() === 0) return
+      if (picked() != null || leftMs() === 0 || revealed()) return
       store.set(key(`answer:${s.id}`), index)
       send({ type: 'answer', screenId: s.id, value: index })
       haptic()
-      lock(index)
+      lock()
       setNote(status, t.locked)
     },
   }))
   const options = el('div', { class: 'options quiz' }, ...buttons)
-  const lock = (choice) => {
+  const lock = () => {
     options.classList.add('quiz-locked')
-    buttons.forEach((b, i) => { b.disabled = true; b.setAttribute('aria-pressed', String(i === choice)) })
+    buttons.forEach((b, i) => { b.disabled = true; b.setAttribute('aria-pressed', String(i === picked())) })
   }
-  if (picked != null || leftMs() === 0) lock(picked)
-  if (feedback) setStatusFeedback(status, feedback)
-  else if (picked != null) setNote(status, t.locked)
-  else if (leftMs() === 0) setNote(status, t.timeUp)
 
   // The bar drains in one smooth CSS transition to the deadline; the number ticks beside it.
   const bar = el('span', { class: 'timer-bar' })
   const number = el('span', { class: 'timer-num', text: String(Math.ceil(leftMs() / 1000)) })
   const timer = el('div', { class: 'timer', role: 'timer' }, el('span', { class: 'timer-track' }, bar), number)
-  const running = !feedback && leftMs() > 0
+  const stopTimer = () => {
+    clearInterval(tick)
+    timer.classList.add('timer-done')
+  }
+
+  /** Shows a right pick's points; `live` when it just arrived, for the pop and the buzz. */
+  const showFeedback = (live) => {
+    const result = feedback()
+    if (!revealed() || !result?.correct) return
+    status.className = 'feedback good'
+    status.textContent = t.right(result.points)
+    if (!live) return
+    status.classList.add('feedback-in')
+    haptic([15, 60, 15])
+  }
+  const reveal = (live) => {
+    const correct = revealed() ? screenState.correct : null
+    if (!correct) return
+    stopTimer()
+    lock()
+    options.classList.add('quiz-revealed')
+    const mine = picked()
+    buttons.forEach((b, i) => {
+      b.classList.toggle('option-right', correct.includes(i))
+      b.classList.toggle('option-wrong', i === mine && !correct.includes(i))
+    })
+    if (mine == null) setNote(status, t.timeUp)
+    else if (!correct.includes(mine)) setNote(status, '')
+    showFeedback(live)
+  }
+  quiz = { id: s.id, reveal: () => reveal(true), feedback: () => showFeedback(true) }
+
+  if (picked() != null || leftMs() === 0) lock()
+  if (picked() != null) setNote(status, t.locked)
+  else if (leftMs() === 0) setNote(status, t.timeUp)
+  reveal(false)
+
+  const running = !revealed() && leftMs() > 0
   show(`quiz:${s.id}`, running ? timer : null, ...question(s.content), options, status)
   if (!running) return
   bar.style.transform = `scaleX(${leftMs() / totalMs})`
@@ -467,28 +578,10 @@ function renderQuiz(s) {
     number.textContent = String(Math.ceil(left / 1000))
     timer.classList.toggle('timer-urgent', left <= 5000)
     if (left > 0) return
-    clearInterval(tick)
-    timer.classList.add('timer-done')
-    lock(store.get(key(`answer:${s.id}`)))
-    if (!store.get(key(`feedback:${s.id}`))) setNote(status, store.get(key(`answer:${s.id}`)) != null ? t.locked : t.timeUp)
+    stopTimer()
+    lock()
+    setNote(status, picked() != null ? t.locked : t.timeUp)
   }, 200)
-}
-
-function setStatusFeedback(node, feedback) {
-  node.className = `feedback ${feedback.correct ? 'good' : 'bad'}`
-  node.textContent = feedback.correct ? t.right(feedback.points) : t.wrong
-}
-
-/** Right or wrong, when the host reveals it: in place, with a pop and a buzz. */
-function revealQuiz(feedback) {
-  const view = currentView()
-  const status = view?.querySelector('.note, .feedback')
-  if (!status || viewKey !== `quiz:${screen.id}`) return render(screen)
-  clearInterval(tick)
-  view.querySelector('.timer')?.remove()
-  setStatusFeedback(status, feedback)
-  status.classList.add('feedback-in')
-  haptic(feedback.correct ? [15, 60, 15] : 40)
 }
 
 // ---- your data ---------------------------------------------------------------

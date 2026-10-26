@@ -49,6 +49,9 @@ export interface Screen {
 /** The `to` payload a phone renders after answering a quiz. */
 export interface QuizFeedback { correct: boolean; points: number }
 
+/** The `state` for a `quiz` screen once the host reveals it: the right options, by index. */
+export interface QuizState { revealed: true; correct: number[] }
+
 /** The `state` for a `list` screen (Q&A). Phones remember their own upvotes. */
 export interface ListState { items: { id: string; text: string; votes: number }[] }
 
@@ -77,7 +80,8 @@ export type ParticipantToRelay =
 
 export type RelayToParticipant =
   // `now` is the relay's clock when sent, so a phone can count down to a quiz deadline whatever its own clock says.
-  | { type: 'welcome'; pid: string; name: string; locale: Locale; screen: Screen | null; state?: unknown; now: number }
+  // `to` is the last message the host sent this phone while the current screen was up, which it may have missed.
+  | { type: 'welcome'; pid: string; name: string; locale: Locale; screen: Screen | null; state?: unknown; to?: unknown; now: number }
   | { type: 'screen'; screen: Screen; now: number }
   | { type: 'state'; screenId: string; state: unknown }
   | { type: 'to'; payload: unknown }

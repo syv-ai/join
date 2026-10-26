@@ -111,7 +111,15 @@ body.is-landing .bar { display: none; }
 .quiz .option:nth-child(4n+3) { background: var(--opt-3); }
 .quiz .option:nth-child(4n+4) { background: var(--opt-4); }
 .quiz .option[aria-pressed="true"] { border-color: var(--fg); }
-.quiz-locked .option:not([aria-pressed="true"]) { opacity: 0.4; }
+.options-locked .option:not([aria-pressed="true"]), .quiz-locked .option:not([aria-pressed="true"]) { opacity: 0.4; }
+/* The reveal: the right option stands out, the rest fade, and a wrong pick is struck through. */
+.option::after { margin-left: auto; font-size: 22px; line-height: 1; flex: none; }
+.quiz-revealed .option:not(.option-right):not(.option-wrong) { opacity: 0.22; }
+.quiz-revealed .option.option-right { opacity: 1; border-color: var(--fg); animation: right-in 420ms var(--ease) both; }
+.quiz-revealed .option-right::after { content: '✓'; }
+.quiz-revealed .option.option-wrong { opacity: 0.6; border-color: var(--bad); text-decoration: line-through; text-decoration-thickness: 2px; }
+.quiz-revealed .option-wrong::after { content: '✕'; }
+@keyframes right-in { 45% { transform: scale(1.03); } }
 
 .primary { border: 0; border-radius: 14px; background: var(--accent); color: var(--accent-fg); padding: 16px; font-weight: 700; font-size: 18px; min-height: 52px; }
 .primary:disabled { opacity: 0.45; }

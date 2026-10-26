@@ -48,7 +48,10 @@ Everything is JSON over WebSocket. The types live in [`src/protocol.ts`](src/pro
 **Staying up during a talk.** A host that reconnects with `open` plus `resume: {code, secret}`
 gets its room back, also after a relay restart. Answers sent while no host is connected are held
 (up to 10 000) and delivered on reconnect. Phones remember their id and name and reconnect on
-their own. A second host that resumes the same room takes it over; the first is told
+their own, at once when the page is looked at again. A phone that comes back is welcomed with
+the current screen, its `state`, and the last `to` the host sent it while that screen was up, so
+a result sent while it was away isn't lost; it then re-sends its own answers to that screen,
+which a host should treat as possible repeats. A second host that resumes the same room takes it over; the first is told
 `taken-over`. A closed room's code is not reused for 12 hours, and an abandoned room is freed
 12 hours after its host's last connection.
 
