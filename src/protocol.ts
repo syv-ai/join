@@ -42,7 +42,7 @@ export interface Screen {
   maxLength?: number
   /** quiz: set by the host. */
   seconds?: number
-  /** quiz: relay time (ms) the answers close, set by the relay when it sends the screen. */
+  /** quiz: relay time (ms) the answers close. The relay sets it; a host re-sending a running quiz passes it back. */
   deadline?: number
 }
 
@@ -115,6 +115,7 @@ function isScreen(value: unknown): value is Screen {
     && optional(value.maxEntries, isCount)
     && optional(value.maxLength, isCount)
     && optional(value.seconds, isCount)
+    && optional(value.deadline, v => Number.isFinite(v))
 }
 
 export function parseHostMessage(raw: string): Parsed<HostToRelay> {

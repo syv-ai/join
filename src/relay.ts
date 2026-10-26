@@ -26,7 +26,7 @@ export interface Relay {
 /** Close codes, in the 4000 range WebSocket leaves to applications. */
 export const CLOSE = { badMessage: 4400, unauthorized: 4401, unknownRoom: 4404, takenOver: 4409, tooFast: 4429 } as const
 
-const HEARTBEAT_MS = 25_000
+const HEARTBEAT_MS = 10_000
 
 const sender = <T>(ws: WebSocket): Send<T> => message => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message))
@@ -47,7 +47,9 @@ export function createRelay(options: RelayOptions): Relay {
   const rooms = new Map<string, Room>()
   /** Codes of closed rooms, reserved until the time given, so a stale resume can't revive them. */
   const tombstones = new Map<string, number>()
-  const wss = new WebSocketServer({ noServer: true, maxPayload: LIMITS.hostScreen + 8192 })
+  // Room above the screen cap, so an oversized screen reaches the parser and gets an error reply
+  // instead of ws closing the socket (which a host would answer by reconnecting and re-sending it).
+  const wss = new WebSocketServer({ noServer: true, maxPayload: LIMITS.hostScreen * 2 })
   const alive = new WeakMap<WebSocket, boolean>()
   const hostSockets = new WeakMap<Send<RelayToHost>, WebSocket>()
 

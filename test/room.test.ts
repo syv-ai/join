@@ -139,3 +139,9 @@ test('closing tells every connected phone', () => {
   assert.equal(a.of('room-closed').length, 1)
   assert.equal(b.of('room-closed').length, 1)
 })
+
+test('a quiz re-sent with its deadline keeps it instead of restarting the clock', () => {
+  const c = clock(90_000), room = new Room('ABCDE', 's', 'da', c.now)
+  const set = room.setScreen({ id: 'quiz1', kind: 'quiz', content: { text: '?', images: [] }, options: ['A'], seconds: 20, deadline: 75_000 })
+  assert.deepEqual(set, { at: 90_000, deadline: 75_000 })
+})

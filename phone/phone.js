@@ -78,6 +78,8 @@ let tick = null
 // After a relay restart, phones reconnect before the host has reclaimed the room. A phone that has
 // been in the room keeps trying instead of reporting it unknown.
 let welcomed = false
+/** Welcomed on the current connection: only then may answers go out (hello comes first). */
+let inRoom = false
 
 function connect() {
   banner.hidden = !ws
@@ -92,6 +94,7 @@ function connect() {
     receive(message)
   }
   socket.onclose = (event) => {
+    inRoom = false
     if (event.code === CLOSE.unknownRoom && !welcomed) return showJoinForm(t.unknownRoom)
     if (screen?.kind === 'thanks') return
     banner.hidden = false
@@ -101,14 +104,19 @@ function connect() {
   }
 }
 
+// Answers tapped while the connection is down wait here and go out once the room has us back,
+// so a phone never shows an answer as sent that the host never got.
+const outbox = []
 function send(message) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message))
+  if (ws && ws.readyState === WebSocket.OPEN && inRoom) ws.send(JSON.stringify(message))
+  else outbox.push(message)
 }
 
 function receive(message) {
   switch (message.type) {
     case 'welcome':
       welcomed = true
+      inRoom = true
       delay = 500
       banner.hidden = true
       locale = message.locale === 'en' ? 'en' : 'da'
@@ -117,6 +125,7 @@ function receive(message) {
       me = { pid: message.pid, name: message.name }
       store.set(key('me'), me)
       showName()
+      for (const queued of outbox.splice(0)) ws.send(JSON.stringify(queued))
       clockOffset = message.now - Date.now()
       listState = message.state ?? null
       render(message.screen)
@@ -127,7 +136,11 @@ function receive(message) {
       render(message.screen)
       return
     case 'state':
-      if (screen && message.screenId === screen.id) { listState = message.state; render(screen) }
+      if (!screen || message.screenId !== screen.id) return
+      listState = message.state
+      // A list redraws only its items: someone may be typing a question.
+      if (screen.kind === 'list' && stage.querySelector('[data-items]')) renderItems(screen)
+      else render(screen)
       return
     case 'to':
       if (screen?.kind === 'quiz' && message.payload && typeof message.payload.correct === 'boolean') {
@@ -237,8 +250,6 @@ function renderText(s) {
 }
 
 function renderList(s) {
-  const votes = new Set(store.get(key(`votes:${s.id}`)) ?? [])
-  const items = Array.isArray(listState?.items) ? listState.items : []
   const input = el('input', { maxlength: String(s.maxLength ?? 200), 'aria-label': t.ask, placeholder: t.ask, autocomplete: 'off', enterkeyhint: 'send' })
   const form = el('form', { class: 'field', onsubmit: (event) => {
     event.preventDefault()
@@ -247,7 +258,16 @@ function renderList(s) {
     send({ type: 'answer', screenId: s.id, value: { add: value } })
     input.value = ''
   } }, input, el('button', { class: 'primary', type: 'submit', text: t.send }))
-  const list = items.length
+  show(...question(s.content), form, el('div', { 'data-items': '' }))
+  renderItems(s)
+}
+
+function renderItems(s) {
+  const holder = stage.querySelector('[data-items]')
+  if (!holder) return
+  const votes = new Set(store.get(key(`votes:${s.id}`)) ?? [])
+  const items = Array.isArray(listState?.items) ? listState.items : []
+  holder.replaceChildren(items.length
     ? el('div', { class: 'items' }, ...items.map(item => el('div', { class: 'item' },
         el('span', { class: 'item-text', text: item.text }),
         el('button', { class: 'vote', type: 'button', 'aria-pressed': String(votes.has(item.id)), text: `▲ ${item.votes}`, onclick: () => {
@@ -255,10 +275,9 @@ function renderList(s) {
           on ? votes.add(item.id) : votes.delete(item.id)
           store.set(key(`votes:${s.id}`), [...votes])
           send({ type: 'answer', screenId: s.id, value: { vote: item.id, on } })
-          renderList(s)
+          renderItems(s)
         } }))))
-    : el('p', { class: 'note', text: t.noQuestions })
-  show(...question(s.content), form, list)
+    : el('p', { class: 'note', text: t.noQuestions }))
 }
 
 function renderQuiz(s) {

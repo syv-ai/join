@@ -83,3 +83,27 @@ test('a screen the relay refuses is reported and not sent again after a reconnec
   h.client.close()
   await second.stop()
 })
+
+test('a running quiz is re-sent with its deadline after a relay restart', async () => {
+  const first = await startRelay()
+  const h = host(first.url)
+  const opened = await h.next(isType('opened'))
+  h.client.send({ type: 'screen', screen: { ...choice('quiz'), kind: 'quiz', seconds: 30 } })
+  const set = await h.next(isType('screen-set'))
+  const port = first.port
+  await first.stop()
+  const second = await startRelay(port)
+  await h.next(isType('opened'))
+  const again = await h.next(isType('screen-set'))
+  assert.equal(again.deadline, set.deadline)
+  const { welcome } = await joinPhone(second.url, opened.code)
+  assert.equal(welcome.screen.deadline, set.deadline)
+  h.client.close()
+  await second.stop()
+})
+
+test('an address that is not a URL reports an error instead of throwing', () => {
+  const events: HostEvent[] = []
+  assert.doesNotThrow(() => connectHost({ url: 'join.syv.ai', token: 't', locale: 'da', onEvent: e => events.push(e) }))
+  assert.deepEqual(events.at(-1), { type: 'status', status: 'error', error: 'invalid-url' })
+})

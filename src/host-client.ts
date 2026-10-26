@@ -22,6 +22,8 @@ export interface HostClient {
 }
 
 const BACKOFF_MS = { first: 500, max: 10_000 }
+/** A connection that answers no ping this long is dead (a laptop off Wi-Fi), and is replaced. */
+const PING_MS = 8_000
 
 /**
  * A host connection that survives relay restarts and network drops: it
@@ -54,8 +56,21 @@ export function connectHost(options: HostClientOptions): HostClient {
   function connect() {
     if (stopped) return
     emit({ type: 'status', status: 'connecting' })
-    const socket = new WebSocket(endpoint, { headers: { authorization: `Bearer ${options.token}` } })
+    let socket: WebSocket
+    try {
+      socket = new WebSocket(endpoint, { headers: { authorization: `Bearer ${options.token}` } })
+    } catch {
+      stopped = true
+      return emit({ type: 'status', status: 'error', error: 'invalid-url' })
+    }
     ws = socket
+    let alive = true
+    const ping = setInterval(() => {
+      if (!alive) return socket.terminate()
+      alive = false
+      if (socket.readyState === socket.OPEN) socket.ping()
+    }, PING_MS)
+    socket.on('pong', () => { alive = true })
     socket.on('open', () => {
       socket.send(JSON.stringify({ type: 'open', locale: options.locale, ...(resume ? { resume } : {}) }))
     })
@@ -76,17 +91,22 @@ export function connectHost(options: HostClientOptions): HostClient {
       // The relay names no message in an error, but it answers in order: a screen it refused is dropped
       // so a reconnect doesn't send it again.
       if (message.type === 'error' && lastSent === 'screen') screen = null
+      // Keep a quiz's deadline with it, so a reconnect re-sends it running rather than restarted.
+      if (message.type === 'screen-set' && message.deadline !== undefined && screen?.screen.id === message.screenId)
+        screen = { ...screen, screen: { ...screen.screen, deadline: message.deadline } }
       if (message.type === 'taken-over') stopped = true
       emit(message)
     })
     socket.on('error', () => { /* 'close' follows and decides what to do */ })
     socket.on('close', (code) => {
+      clearInterval(ping)
       open = false
       if (ws === socket) ws = null
       if (code === CLOSE.unauthorized) {
         stopped = true
         return emit({ type: 'status', status: 'error', error: 'unauthorized' })
       }
+      if (code === CLOSE.takenOver) stopped = true
       if (stopped) return
       emit({ type: 'status', status: 'connecting' })
       timer = setTimeout(connect, delay)

@@ -94,10 +94,15 @@ export class Room {
     this.host?.({ type: 'renamed', pid, name })
   }
 
-  /** Shows `screen` on every phone. A quiz gets its deadline here, from the relay's clock. */
+  /**
+   * Shows `screen` on every phone. A quiz gets its deadline here, from the relay's clock, unless
+   * the host sends one it was given before (a reconnect re-sends the running quiz; its clock goes on).
+   */
   setScreen(screen: Screen): { at: number; deadline?: number } {
     const at = this.now()
-    const deadline = screen.kind === 'quiz' && screen.seconds ? at + screen.seconds * 1000 : undefined
+    const deadline = screen.kind !== 'quiz' || !screen.seconds ? undefined
+      : typeof screen.deadline === 'number' ? screen.deadline
+      : at + screen.seconds * 1000
     this.screen = deadline === undefined ? screen : { ...screen, deadline }
     this.broadcast({ type: 'screen', screen: this.screen, now: at })
     return deadline === undefined ? { at } : { at, deadline }
