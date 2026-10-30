@@ -41,7 +41,10 @@ Everything is JSON over WebSocket. The types live in [`src/protocol.ts`](src/pro
   `count` and `answer` messages. `close` ends the room.
 - **Phone**: the page at `/<CODE>` connects to `/p/<CODE>`, gets a random name such as
   `marvelous-otter` (it can rename), and answers the current screen. Screen kinds: `wait`,
-  `choice`, `text`, `list`, `quiz`, `thanks`.
+  `choice`, `text`, `list`, `quiz`, `thanks`. A `wait` with `options` is a quiz about to start:
+  phones show its question and options under "Gør dig klar" until the `quiz` screen with the same
+  id arrives. `thanks` doesn't end anything: phones stay connected, so the host can show another
+  screen after it. Only `close` ends the room, and phones then say the session is over.
 - **Relay**: stamps every answer with its own clock (`at`) and sets a quiz's `deadline`, so
   timing is fair across phones.
 

@@ -153,3 +153,21 @@ test('100 phones join one room and every answer arrives', async () => {
   assert.equal(answers, 100)
   for (const { phone } of phones) phone.ws.close()
 })
+
+test('a quiz shown as a wait screen first gets no deadline, and a thanks screen leaves the room open', async () => {
+  const { url } = await relay()
+  const { host, opened } = await openHost(url)
+  const { phone } = await joinPhone(url, opened.code)
+  const shown = async (screen: object) => {
+    const arrived = phone.next('screen')
+    host.send({ type: 'screen', screen })
+    return (await arrived).screen
+  }
+  const options = ['2020', '2021', '2022']
+  const set = host.next('screen-set')
+  assert.deepEqual((await shown({ id: 'quiz1', kind: 'wait', content: { text: 'Hvornår?', images: [] }, options })).options, options)
+  assert.equal((await set).deadline, undefined)
+  assert.equal((await shown({ id: 'thanks', kind: 'thanks', content: { text: '', images: [] } })).kind, 'thanks')
+  assert.equal((await shown(choice)).id, 'q1')
+  assert.equal(phone.ws.readyState, phone.ws.OPEN)
+})

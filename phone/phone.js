@@ -9,7 +9,7 @@ const STRINGS = {
     closed: 'Sessionen er slut. Tak fordi du var med.', send: 'Send', sent: 'Svar sendt',
     entriesLeft: n => n === 1 ? 'Du kan sende 1 svar mere.' : `Du kan sende ${n} svar mere.`, noMore: 'Tak for dine svar.',
     yourWord: 'Dit svar', ask: 'Stil et spørgsmål', noQuestions: 'Ingen spørgsmål endnu.',
-    locked: 'Svar låst', timeUp: 'Tiden er gået', right: points => `Rigtigt! +${points}`,
+    locked: 'Svar låst', timeUp: 'Tiden er gået', getReady: 'Gør dig klar', right: points => `Rigtigt! +${points}`,
     close: 'Luk',
     chooseName: 'Vælg dit navn', nameHint: 'Navnet ses af oplægsholderen og kan stå på quizzens topliste. Det kan ikke ændres bagefter.',
     nameLabel: 'Dit navn', continue: 'Fortsæt',
@@ -29,7 +29,7 @@ const STRINGS = {
     closed: 'The session has ended. Thanks for joining.', send: 'Send', sent: 'Answer sent',
     entriesLeft: n => n === 1 ? 'You can send 1 more answer.' : `You can send ${n} more answers.`, noMore: 'Thanks for your answers.',
     yourWord: 'Your answer', ask: 'Ask a question', noQuestions: 'No questions yet.',
-    locked: 'Answer locked', timeUp: "Time's up", right: points => `Correct! +${points}`,
+    locked: 'Answer locked', timeUp: "Time's up", getReady: 'Get ready', right: points => `Correct! +${points}`,
     close: 'Close',
     chooseName: 'Choose your name', nameHint: 'The presenter sees it, and it can appear on the quiz leaderboard. It can’t be changed afterwards.',
     nameLabel: 'Your name', continue: 'Continue',
@@ -158,7 +158,7 @@ let clockOffset = 0 // relay time minus our time
 let delay = 500
 let retry = null
 let tick = null
-/** The room has closed or doesn't exist: nothing to reconnect to. */
+/** The room has closed or doesn't exist: nothing to reconnect to. A `thanks` screen alone doesn't end it. */
 let finished = false
 // After a relay restart, phones reconnect before the host has reclaimed the room. A phone that has
 // been in the room keeps trying instead of reporting it unknown.
@@ -299,6 +299,7 @@ function receive(message) {
       showName()
       return
     case 'room-closed':
+      finished = true
       render({ id: 'thanks', kind: 'thanks', content: { text: '', images: [] } })
       return
   }
@@ -350,16 +351,27 @@ function render(next) {
   if (naming) return
   clearInterval(tick)
   quiz = null
+  if (screen?.kind === 'wait' && screen.options?.length) return renderGetReady(screen)
   if (!screen || screen.kind === 'wait')
     return show('wait', el('div', { class: 'waiting' }, el('span', { class: 'pulse', 'aria-hidden': 'true' }), el('p', { class: 'big', text: t.look })))
+  // The host thanks the room at its end slide but may go back; only `room-closed` ends the session.
   if (screen.kind === 'thanks') {
-    finished = true
-    setBanner(null)
-    return show('thanks', el('p', { class: 'big', text: t.thanks }), el('p', { class: 'note note-shown', text: t.closed }))
+    if (finished) setBanner(null)
+    return show('thanks', el('p', { class: 'big', text: t.thanks }), finished ? el('p', { class: 'note note-shown', text: t.closed }) : null)
   }
   const view = { choice: renderChoice, text: renderText, list: renderList, quiz: renderQuiz }[screen.kind]
   if (view) view(screen)
   else show('wait', el('p', { class: 'big', text: t.look }))
+}
+
+/**
+ * A quiz that hasn't started: the host shows its question and options as a `wait` screen. The
+ * options can't be picked yet. The quiz screen with the same id replaces this view in place.
+ */
+function renderGetReady(s) {
+  const buttons = s.options.map(label => el('button', { class: 'option', type: 'button', text: label, disabled: true }))
+  show(`quiz:${s.id}`, el('p', { class: 'note note-shown get-ready', text: t.getReady }), ...question(s.content),
+    el('div', { class: 'options quiz quiz-waiting' }, ...buttons))
 }
 
 /** A poll answer is final once sent: one tap for a single choice, Send for several. */

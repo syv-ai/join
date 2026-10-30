@@ -13,6 +13,7 @@ const screens: Screen[] = [
   { id: 'multi', kind: 'choice', content: content('Vælg alle der passer'), options: ['Mail', 'Møder', 'Rapporter'], multi: true },
   { id: 'cloud', kind: 'text', content: content('Ét ord om AI'), maxEntries: 3, maxLength: 30 },
   { id: 'qa', kind: 'list', content: content('Spørgsmål til oplægget'), maxLength: 200 },
+  { id: 'quiz', kind: 'wait', content: content('Hvornår kom ChatGPT?'), options: ['2020', '2021', '2022', '2023'] },
   { id: 'quiz', kind: 'quiz', content: content('Hvornår kom ChatGPT?'), options: ['2020', '2021', '2022', '2023'], seconds: 20 },
   { id: 'thanks', kind: 'thanks', content: content('') },
 ]

@@ -111,6 +111,7 @@ body.is-landing .bar { display: none; }
 .quiz .option:nth-child(4n+2) { background: var(--opt-2); }
 .quiz .option:nth-child(4n+3) { background: var(--opt-3); }
 .quiz .option:nth-child(4n+4) { background: var(--opt-4); }
+.quiz-waiting .option { opacity: 0.4; }
 .options-locked .option:not([aria-pressed="true"]), .quiz-locked .option:not([aria-pressed="true"]) { opacity: 0.4; }
 /* The reveal: the right option stands out, the rest fade, and a wrong pick is struck through. */
 .option::after { margin-left: auto; font-size: 22px; line-height: 1; flex: none; }
@@ -150,6 +151,7 @@ body.is-landing .bar { display: none; }
 .timer-urgent .timer-num { color: var(--bad); animation: tick-pulse 1s ease-in-out infinite; }
 .timer-done { opacity: 0; transition: opacity var(--base); }
 @keyframes tick-pulse { 50% { transform: scale(1.12); } }
+.get-ready { font-size: 22px; font-weight: 700; color: var(--fg); }
 .feedback { font-size: 28px; font-weight: 700; text-align: center; margin: 2vh 0 0; }
 .feedback.good { color: var(--good); }
 .feedback.bad { color: var(--bad); }

@@ -28,7 +28,15 @@ export type Locale = 'da' | 'en'
 
 export type ScreenKind = 'wait' | 'choice' | 'text' | 'list' | 'quiz' | 'thanks'
 
-/** What phones show. The host decides it; the phone page renders exactly these kinds. */
+/**
+ * What phones show. The host decides it; the phone page renders exactly these kinds.
+ *
+ * - `wait`: "look at the screen". With `options` it is a quiz that hasn't started: the phone
+ *   shows the question and the options, not yet pickable, under "get ready". The `quiz` screen
+ *   with the same id that follows starts it. Older phone pages show it as a plain `wait`.
+ * - `thanks`: "thank you" at the end of a talk. It doesn't end the room: the phone stays connected
+ *   and shows whatever screen comes next. Only `room-closed` ends the session on the phone.
+ */
 export interface Screen {
   id: string
   kind: ScreenKind
